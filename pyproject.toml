@@ -1,14 +1,58 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "hterm"
-version = "0.1.0"
-description = "Add your description here"
+name = "ymodterm"
+authors = [
+    { name="o-murphy" },
+]
+
+description = "Serial terminal with Y-Modem transfer support"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.10"
+keywords = ["serial", "uart", "ymodem", "xmodem"]
+license = {file = "LICENSE"}
+classifiers = [
+    "Intended Audience :: Developers",
+    "Natural Language :: English",
+    "Programming Language :: Python",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Implementation :: CPython",
+]
 dependencies = [
     "pyside6>=6.10.1",
     "qtpy>=2.4.3",
     "ymodem",
 ]
+dynamic = ["version"]
+
+[project.urls]
+"Homepage" = "https://github.com/o-murphy/ymodterm"
+"Bug Reports" = "https://github.com/o-murphy/ymodterm/issues"
+"Source" = "https://github.com/o-murphy/ymodterm"
+
+[project.scripts]
+ymodterm = "ymodterm.__main__:main"
 
 [tool.uv.sources]
 ymodem = { git = "https://github.com/o-murphy/ymodem.git" }
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ymodterm*"]
+
+[tool.setuptools_scm]
+fallback_version = "0.0.0.dev0"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.9",
+]
