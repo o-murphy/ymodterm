@@ -198,7 +198,7 @@ _DEFAULTS = {
     "OpenMode": QSerialPort.OpenModeFlag.ReadWrite,
     "DisplayCtrlChars": False,
     "ShowTimeStamp": False,
-    "Logfile": None,
+    "Logfile": (Path("~").expanduser() / ".ymodterm.log").as_posix(),
     "LogfileAppendMode": False,
 }
 
@@ -647,37 +647,51 @@ class SelectLogFileWidget(QWidget):
         self._logfile.setAlignment(Qt.AlignmentFlag.AlignRight)
         self._get_logfile = QPushButton("...")
         self._get_logfile.setFixedWidth(32)
-        self._append = QCheckBox("Append")
+        self._logfile_append_mode = QCheckBox("Append")
 
         self.lt = QHBoxLayout(self)
         self.lt.setContentsMargins(0, 0, 0, 0)
         self.lt.addWidget(QLabel("Logfile:"))
         self.lt.addWidget(self._logfile)
         self.lt.addWidget(self._get_logfile)
-        self.lt.addWidget(self._append)
+        self.lt.addWidget(self._logfile_append_mode)
 
         self._get_logfile.clicked.connect(self.on_get_log_file)
         self._logfile.textChanged.connect(self.logfile_changed.emit)
 
-        initial_log_path = (Path("~").expanduser() / ".ymodterm.log").as_posix()
+        initial_log_path = _DEFAULTS.get("Logfile")
         self._logfile.setText(initial_log_path)
 
     @property
     def logfile(self) -> tuple[str, str]:
-        file_mode = "a" if self._append.isChecked() else "w"
-        return (self._logfile.text(), file_mode)
+        return self._logfile.text()
+    
+    @logfile.setter
+    def logfile(self, text):
+        self._logfile.setText(text)
+
+    @property
+    def logfile_append_mode(self):
+        # file_mode = "a" if self._append.isChecked() else "w"
+        return self._logfile_append_mode.isChecked()
+    
+    @logfile_append_mode.setter
+    def logfile_append_mode(self, value):
+        self._logfile_append_mode.setChecked(value)
 
     def on_get_log_file(self):
         file_dialog = QFileDialog(self, "Save log file ...")
         file_dialog.setAcceptMode(QFileDialog.AcceptSave)
         file_dialog.setFileMode(QFileDialog.FileMode.AnyFile)
         file_dialog.setOption(
-            QFileDialog.Option.DontConfirmOverwrite, self._append.isChecked()
+            QFileDialog.Option.DontConfirmOverwrite, self.logfile_append_mode
         )  # ⚡ вимикає стандартний попереджувальний діалог
-        file_dialog.exec_()
-        files = file_dialog.selectedFiles()
-        if files and len(files):
-            self._logfile.setText(files[0])
+        result = file_dialog.exec_()
+        print(result)
+        if result == QFileDialog.Accepted:
+            files = file_dialog.selectedFiles()
+            if files and len(files):
+                self._logfile.setText(files[0])
 
 
 class SettingsWidget(QWidget):
@@ -691,6 +705,7 @@ class SettingsWidget(QWidget):
         self._baud.setEditable(True)
         baud_validator = QIntValidator(0, 10000000, self)
         self._baud.lineEdit().setValidator(baud_validator)
+
         for k, v in QSerialPort.BaudRate.__members__.items():
             self._baud.addItem(str(v.value), userData=v)
         self._baud.setCurrentIndex(self._baud.findData(QSerialPort.BaudRate.Baud115200))
@@ -730,8 +745,15 @@ class SettingsWidget(QWidget):
         )
 
         self._stop_bits = QComboBox(self)
-        for k, v in QSerialPort.StopBits.__members__.items():
-            self._stop_bits.addItem(str(v.value), userData=v)
+        for k, v in {
+            "One Stop": QSerialPort.StopBits.OneStop,
+            "Two Stop": QSerialPort.StopBits.TwoStop,
+            "One and Half": QSerialPort.StopBits.OneAndHalfStop,
+        }.items():
+            self._stop_bits.addItem(k, userData=v)
+        self._stop_bits.setCurrentIndex(
+            self._stop_bits.findData(QSerialPort.StopBits.OneStop)
+        )
 
         self._display_ctrl_chars = QCheckBox("Display Ctrl Characters")
 
@@ -858,19 +880,19 @@ class SettingsWidget(QWidget):
 
     @property
     def logfile(self):
-        return self._logfile._logfile.text()
+        return self._logfile.logfile
 
     @logfile.setter
     def logfile(self, text):
-        self._logfile._logfile.setText(text)
+        self._logfile.logfile = text
 
     @property
     def log_file_append_mode(self):
-        return self._logfile._append.isChecked()
+        return self._logfile._logfile_append_mode.isChecked()
 
     @log_file_append_mode.setter
     def log_file_append_mode(self, value):
-        return self._logfile._append.setChecked(value)
+        return self._logfile._logfile_append_mode.setChecked(value)
 
 
 class TerminalInput(QLineEdit):
@@ -911,7 +933,6 @@ class TerminalInput(QLineEdit):
             self._insert_visual_char("\t", "\\t")
             return
 
-        # 5. Всі інші
         super().keyPressEvent(event)
         self._rebuild_char_map()
 
@@ -924,35 +945,10 @@ class TerminalInput(QLineEdit):
         self.setText(new_text)
         self.setCursorPosition(cursor_pos + len(display_text))
 
-        # Зберігаємо маппінг
         self._char_map[cursor_pos] = (actual_char, len(display_text))
 
     def _rebuild_char_map(self):
-        """Перебудовує char_map після редагування."""
-        # Складно відслідковувати зміни в QLineEdit, тому просто очищаємо
-        # при звичайному вводі
         pass
-
-    def get_actual_text(self) -> str:
-        """Повертає текст з реальними керуючими символами."""
-        if not self._char_map:
-            return self.text()
-
-        text = self.text()
-        result = []
-        i = 0
-
-        while i < len(text):
-            # Перевіряємо чи є маппінг
-            if i in self._char_map:
-                actual_char, length = self._char_map[i]
-                result.append(actual_char)
-                i += length
-            else:
-                result.append(text[i])
-                i += 1
-
-        return "".join(result)
 
 
 class InputWidget(QWidget):
@@ -1115,6 +1111,17 @@ class OutputViewWidget(QWidget):
     def log_to_file(self, value):
         self._log_to_file.setChecked(value)
 
+    @property
+    def logfile(self):
+        return self._logfile.text()
+
+    @logfile.setter
+    def logfile(self, value):
+        self._logfile.setText(value)
+
+    def steLogFile(self, value):
+        self.logfile = value
+
     def insertPlainBytesOrStr(
         self, data: bytes | str, prefix: str = "", suffix: str = ""
     ):
@@ -1153,9 +1160,6 @@ class OutputViewWidget(QWidget):
 
     def setShowCtrlChars(self, enabled: int = 0):
         self.display_ctrl_chars = enabled == Qt.CheckState.Checked
-
-    def setLogFile(self, text):
-        self._logfile.setText(text)
 
     def _insert_colored_text(self, text: str, color: QColor | None):
         cursor = self.text_view.textCursor()
@@ -1239,7 +1243,7 @@ class CentralWidget(QWidget):
 
         self.input_history = InputHistory(self)
         self.output_view = OutputViewWidget(self)
-        self.output_view.setLogFile(self.serial_manager.settings.logfile)
+        self.output_view.logfile = self.serial_manager.settings.logfile
         self.output_view.setShowCtrlChars(
             self.serial_manager.settings.display_ctrl_chars
         )
@@ -1270,7 +1274,7 @@ class CentralWidget(QWidget):
             self.on_connection_state_changed
         )
         self.serial_manager.settings.logfile_changed.connect(
-            self.output_view.setLogFile
+            self.output_view.steLogFile
         )
         self.serial_manager.settings.display_ctrl_chars_changed.connect(
             self.output_view.setShowCtrlChars
@@ -1336,7 +1340,7 @@ class CentralWidget(QWidget):
             QMessageBox.warning(self, "Error", "Port is not opened!")
             return
 
-        # Створюємо менеджер передачі
+        # Init Transfer manager
         self.modem_manager = ModemTransferManager(self.serial_manager.port)
 
         self.progress_dialog = QProgressDialog(
@@ -1409,17 +1413,21 @@ class CentralWidget(QWidget):
             msg_box.setWindowTitle("Success")
             msg_box.setText("✓ File successfully transfered!")
             msg_box.show()
-            
+
             QTimer.singleShot(2000, msg_box.close)
         else:
             QMessageBox.warning(self, "Error", "✗ Error occured during file transfer")
 
     def _on_transfer_error(self, error_msg: str):
-        self.output_view.insertPlainBytesOrStr(f"{error_msg}", prefix="\n[ERROR] ", suffix="\n")
+        self.output_view.insertPlainBytesOrStr(
+            f"{error_msg}", prefix="\n[ERROR] ", suffix="\n"
+        )
         self.modem_manager.cancel()
 
     def _on_transfer_log(self, log_msg: str):
-        self.output_view.insertPlainBytesOrStr(f"{log_msg}", prefix="[YMODEM] ", suffix="\n")
+        self.output_view.insertPlainBytesOrStr(
+            f"{log_msg}", prefix="[YMODEM] ", suffix="\n"
+        )
 
 
 class YModTermWindow(QMainWindow):
