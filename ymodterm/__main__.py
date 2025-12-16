@@ -1460,7 +1460,7 @@ class CentralWidget(QWidget):
             port=self.serial_manager.select.currentText(),
             baud=self.state.getBaudrate(),
             bits=self.state.getDataBits(),
-            parity=QSerialPort.Parity(self.state.getDataBits()).name[0],
+            parity=QSerialPort.Parity(self.state.getParity()).name[0],
             stop=stop_bits,
         )
         self.status.setText(text)
