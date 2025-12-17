@@ -380,14 +380,14 @@ class ModemTransferManager(QObject):
 class StatefullProperty(QObject):
     changed = Signal(object)
 
-    def __init__(self, initial_value, typ = object, /, parent = None, *, objectName = None):
+    def __init__(self, initial_value, typ=object, /, parent=None, *, objectName=None):
         super().__init__(parent, objectName=objectName)
         self.value = initial_value
         self.typ = typ
 
     def get(self):
         return self.value
-    
+
     def set(self, value):
         if not isinstance(value, self.typ) and self.typ is not object:
             value = self.typ(value)
@@ -396,95 +396,74 @@ class StatefullProperty(QObject):
             self.changed.emit(value)
 
     def bind(self, value_setter, change_event: Signal):
-        
         change_event.connect(self.set)
         value_setter(self.value)
 
 
 class AppState(QObject):
-    autoReconnectChanged = Signal(bool)
-    lineEndChanged = Signal(str)
-    autoReturnChanged = Signal(bool)
-    modemProtocolChanged = Signal(str)
-    hexOutputChanged = Signal(bool)
-    logToFileChanged = Signal(bool)
-    baudrateChanged = Signal(int)
     dataBitsChanged = Signal(int)
     flowControlChanged = Signal(int)
     stopBitsChanged = Signal(int)
     parityChanged = Signal(int)
     openModeChanged = Signal(int)
     logfileAppendModeChanged = Signal(bool)
-    displayCtrlCharsChanged = Signal(bool)
-    showTimestampChanged = Signal(bool)
-    logfileChanged = Signal(str)
-    
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.settings = QSettings("o-murphy", "ymodterm")
 
-        self._auto_reconnect = False
-        
-        self.rts = StatefullProperty(False, bool, parent=self, objectName="RTS")
-        self.dtr = StatefullProperty(True, bool, parent=self, objectName="DTR")
+        self.rts = StatefullProperty(False, bool, self, objectName="RTS")
+        self.dtr = StatefullProperty(True, bool, self, objectName="DTR")
+        self.auto_reconnect = StatefullProperty(
+            False, bool, self, objectName="AutoReconnect"
+        )
+        self.line_end = StatefullProperty("CR", str, self, objectName="LineEnd")
+        self.auto_return = StatefullProperty(False, bool, self, objectName="AutoReturn")
+        self.modem_protocol = StatefullProperty(
+            "YModem", str, self, objectName="ModemProtocol"
+        )
+        self.hex_output = StatefullProperty(False, bool, self, objectName="HexOutput")
+        self.log_to_file = StatefullProperty(False, bool, self, objectName="LogToFile")
+        self.baudrate = StatefullProperty(
+            QSerialPort.BaudRate.Baud115200.value, int, self, objectName="Baudrate"
+        )
 
-        self._line_end = "CR"
-        self._auto_return = False
-        self._modem_protocol = "YModem"
-        self._hex_output = False
-        self._log_to_file = False
-        self._baudrate = QSerialPort.BaudRate.Baud115200.value
         self._data_bits = QSerialPort.DataBits.Data8.value
         self._flow_ctrl = QSerialPort.FlowControl.NoFlowControl.value
         self._stop_bits = QSerialPort.StopBits.OneStop.value
         self._parity = QSerialPort.Parity.NoParity.value
         self._open_mode = QSerialPort.OpenModeFlag.ReadWrite.value
-        self._logfile_append_mode = False
-        self._display_ctrl_chars = False
-        self._show_timestamp = False
-        self._logfile = _DEFAULTS.get("LogToFile")
+
+        self.logfile_append_mode = StatefullProperty(
+            False, bool, self, objectName="LogfileAppendMode"
+        )
+        self.display_ctrl_chars = StatefullProperty(
+            False, bool, self, objectName="HexOutput"
+        )
+        self.show_timestamp = StatefullProperty(
+            False, bool, self, objectName="HexOutput"
+        )
+        self.logfile = StatefullProperty(
+            _DEFAULTS.get("LogToFile"), str, self, objectName="Logfile"
+        )
+
+    def restore_property(self, prop: StatefullProperty):
+        prop_name = prop.objectName()
+        fallback_value = _DEFAULTS.get(prop_name, prop.value)
+        prop.set(self.settings.value(prop_name, fallback_value, prop.typ))
 
     def restore_settings(self):
         try:
-            self.rts.set(self.settings.value("RTS", _DEFAULTS.get("RTS", True), self.rts.typ))
-            self.dtr.set(self.settings.value("DTR", _DEFAULTS.get("DTR", True), self.dtr.typ))
-            self.setAutoReconnect(
-                self.settings.value(
-                    "AutoReconnect", _DEFAULTS.get("AutoReconnect", False), bool
-                )
-            )
-            self.setLineEnd(
-                self.settings.value(
-                    "LineEnd", _DEFAULTS.get("AutoReconnect", "CR"), str
-                )
-            )
-            self.setAutoReturn(
-                self.settings.value(
-                    "AutoReturn", _DEFAULTS.get("AutoReturn", False), bool
-                )
-            )
-            self.setModemProtocol(
-                self.settings.value(
-                    "ModemProtocol", _DEFAULTS.get("ModemProtocol", "YModem"), str
-                )
-            )
-            self.setHexOutput(
-                self.settings.value(
-                    "HexOutput", _DEFAULTS.get("HexOutput", False), bool
-                )
-            )
-            self.setLogToFile(
-                self.settings.value(
-                    "LogToFile", _DEFAULTS.get("LogToFile", False), bool
-                )
-            )
-            self.setBaudrate(
-                self.settings.value(
-                    "Baudrate",
-                    _DEFAULTS.get("Baudrate", QSerialPort.BaudRate.Baud115200.value),
-                    int,
-                )
-            )
+            self.restore_property(self.rts)
+            self.restore_property(self.dtr)
+            self.restore_property(self.auto_reconnect)
+            self.restore_property(self.line_end)
+            self.restore_property(self.auto_return)
+            self.restore_property(self.modem_protocol)
+            self.restore_property(self.hex_output)
+            self.restore_property(self.log_to_file)
+            self.restore_property(self.baudrate)
+
             self.setDataBits(
                 self.settings.value(
                     "DataBits",
@@ -522,110 +501,41 @@ class AppState(QObject):
                     int,
                 )
             )
-            self.setLogfileAppendMode(
-                self.settings.value(
-                    "LogfileAppendMode", _DEFAULTS.get("LogfileAppendMode", False), bool
-                )
-            )
-            self.setDisplayCtrlChars(
-                self.settings.value(
-                    "DisplayCtrlChars", _DEFAULTS.get("DisplayCtrlChars", False), bool
-                )
-            )
-            self.setShowTimestamp(self.settings.value(
-                "ShowTimeStamp", _DEFAULTS.get("ShowTimeStamp", False), bool
-            ))
-            self.setLogfile(self.settings.value(
-                "Logfile", _DEFAULTS.get("Logfile", ""), str
-            ))
+
+            self.restore_property(self.logfile_append_mode)
+            self.restore_property(self.display_ctrl_chars)
+            self.restore_property(self.logfile)
+
         except EOFError as e:
             print("EOFError", e)
             self.save_settings()
 
+    def save_property(self, prop: StatefullProperty):
+        self.settings.setValue(prop.objectName(), prop.get())
+
     def save_settings(self):
-        self.settings.setValue("RTS", self.rts.get())
-        self.settings.setValue("DTR", self.dtr.get())
-        self.settings.setValue("AutoReconnect", self.getAutoReconnect())
-        self.settings.setValue("LineEnd", self.getLineEnd())
-        self.settings.setValue("AutoReturn", self.getAutoReturn())
-        self.settings.setValue("ModemProtocol", self.getModemProtocol())
-        self.settings.setValue("HexOutput", self.getHexOutput())
-        self.settings.setValue("LogToFile", self.getLogToFile())
-        self.settings.setValue("Baudrate", self.getBaudrate())
+        self.save_property(self.rts)
+        self.save_property(self.dtr)
+        self.save_property(self.auto_reconnect)
+        self.save_property(self.line_end)
+        self.save_property(self.auto_return)
+        self.save_property(self.modem_protocol)
+        self.save_property(self.hex_output)
+        self.save_property(self.log_to_file)
+        self.save_property(self.baudrate)
+
         self.settings.setValue("DataBits", self.getDataBits())
         self.settings.setValue("FlowControl", self.getFlowControl())
         self.settings.setValue("StopBits", self.getStopBits())
         self.settings.setValue("Parity", self.getParity())
         self.settings.setValue("OpenMode", self.getOpenMode())
-        self.settings.setValue("LogfileAppendMode", self.getLogfileAppendMode())
-        self.settings.setValue("DisplayCtrlChars", self.getDisplayCtrlChars())
-        self.settings.setValue("ShowTimeStamp", self.getShowTimestamp())
-        self.settings.setValue("Logfile", self.getLogfile())
+
+        self.save_property(self.logfile_append_mode)
+        self.save_property(self.display_ctrl_chars)
+        self.save_property(self.show_timestamp)
+        self.save_property(self.logfile)
 
         self.settings.sync()
-
-    # --- AutoReconnect ---
-    def getAutoReconnect(self) -> bool:
-        return self._auto_reconnect
-
-    def setAutoReconnect(self, value: bool):
-        if self._auto_reconnect != value:
-            self._auto_reconnect = value
-            self.autoReconnectChanged.emit(value)
-
-    # --- Line End ---
-    def getLineEnd(self) -> str:
-        return self._line_end
-
-    def setLineEnd(self, value: str):
-        if self._line_end != value:
-            self._line_end = value
-            self.lineEndChanged.emit(value)
-
-    # --- Auto Return ---
-    def getAutoReturn(self) -> bool:
-        return self._auto_return
-
-    def setAutoReturn(self, value: bool):
-        if self._auto_return != value:
-            self._auto_return = value
-            self.autoReturnChanged.emit(value)
-
-    # --- Modem Protocol ---
-    def getModemProtocol(self) -> str:
-        return self._modem_protocol
-
-    def setModemProtocol(self, value: str):
-        if self._modem_protocol != value:
-            self._modem_protocol = value
-            self.modemProtocolChanged.emit(value)
-
-    # --- Hex Output ---
-    def getHexOutput(self) -> bool:
-        return self._hex_output
-
-    def setHexOutput(self, value: bool):
-        if self._hex_output != value:
-            self._hex_output = value
-            self.hexOutputChanged.emit(value)
-
-    # --- Log To File ---
-    def getLogToFile(self) -> bool:
-        return self._log_to_file
-
-    def setLogToFile(self, value: bool):
-        if self._log_to_file != value:
-            self._log_to_file = value
-            self.logToFileChanged.emit(value)
-
-    # --- Baudrate ---
-    def getBaudrate(self) -> int:
-        return self._baudrate
-
-    def setBaudrate(self, value: int):
-        if self._baudrate != value:
-            self._baudrate = value
-            self.baudrateChanged.emit(value)
 
     # --- Data Bits ---
     def getDataBits(self) -> int:
@@ -672,42 +582,6 @@ class AppState(QObject):
             self._open_mode = value
             self.openModeChanged.emit(value)
 
-    # --- Logfile Append Mode ---
-    def getLogfileAppendMode(self) -> bool:
-        return self._logfile_append_mode
-
-    def setLogfileAppendMode(self, value: bool):
-        if self._logfile_append_mode != value:
-            self._logfile_append_mode = value
-            self.logfileAppendModeChanged.emit(value)
-
-    # --- Display Ctrl Chars Changed ---
-    def getDisplayCtrlChars(self) -> bool:
-        return self._display_ctrl_chars
-
-    def setDisplayCtrlChars(self, value: bool):
-        if self._display_ctrl_chars != value:
-            self._display_ctrl_chars = value
-            self.displayCtrlCharsChanged.emit(value)
-
-    # --- Show Timestamp ---
-    def getShowTimestamp(self) -> bool:
-        return self._show_timestamp
-
-    def setShowTimestamp(self, value: bool):
-        if self._show_timestamp != value:
-            self._show_timestamp = value
-            self.showTimestampChanged.emit(value)
-
-    # --- Logfile ---
-    def getLogfile(self) -> str:
-        return self._logfile
-
-    def setLogfile(self, value: str):
-        if self._logfile != value:
-            self._logfile = value
-            self.logfileChanged.emit(value)
-
 
 class SerialManagerWidget(QWidget):
     REFRESH_INTERVAL_MS = 3000
@@ -745,8 +619,9 @@ class SerialManagerWidget(QWidget):
         # bind state
         self.state.rts.bind(self.rts.setChecked, self.rts.toggled)
         self.state.dtr.bind(self.dtr.setChecked, self.dtr.toggled)
-
-        self.auto_reconnect.setChecked(self.state.getAutoReconnect())
+        self.state.auto_reconnect.bind(
+            self.auto_reconnect.setChecked, self.auto_reconnect.toggled
+        )
 
         self._settings_btn = QPushButton("Show Settings")
 
@@ -773,9 +648,6 @@ class SerialManagerWidget(QWidget):
         self.refresh()
         self.connect_btn.clicked.connect(self.toggle_connect)
         self._settings_btn.clicked.connect(self.toggle_settings)
-
-        # bind to app state
-        self.auto_reconnect.toggled.connect(self.state.setAutoReconnect)
 
         # bind callbacks
         self.state.rts.changed.connect(self._update_dtr)
@@ -869,7 +741,7 @@ class SerialManagerWidget(QWidget):
 
             # 2. Configure the port
             self.port.setPortName(port_name)
-            self.port.setBaudRate(self.state.getBaudrate())
+            self.port.setBaudRate(self.state.baudrate.get())
             self.port.setDataBits(QSerialPort.DataBits(self.state.getDataBits()))
             self.port.setParity(QSerialPort.Parity(self.state.getParity()))
             self.port.setStopBits(QSerialPort.StopBits(self.state.getStopBits()))
@@ -910,7 +782,6 @@ class SerialManagerWidget(QWidget):
 
 
 class SelectLogFileWidget(QWidget):
-
     def __init__(self, state: AppState, parent=None):
         super().__init__(parent)
         self.state = state
@@ -918,16 +789,14 @@ class SelectLogFileWidget(QWidget):
         self.logfile = QLineEdit(self)
         self.logfile_append_mode = QCheckBox("Append")
 
-
         self.logfile.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.get_logfile = QPushButton("...")
         self.get_logfile.setFixedWidth(32)
 
-        self.logfile.setText(self.state.getLogfile())
-        self.logfile_append_mode.setChecked(self.state.getLogfileAppendMode())
-
-        self.logfile.textChanged.connect(self.state.setLogfile)
-        self.logfile_append_mode.toggled.connect(self.state.setLogfileAppendMode)
+        self.state.logfile.bind(self.logfile.setText, self.logfile.textChanged)
+        self.state.logfile_append_mode.bind(
+            self.logfile_append_mode.setChecked, self.logfile_append_mode.toggled
+        )
 
         self.lt = QHBoxLayout(self)
         self.lt.setContentsMargins(0, 0, 0, 0)
@@ -943,7 +812,8 @@ class SelectLogFileWidget(QWidget):
         file_dialog.setAcceptMode(QFileDialog.AcceptSave)
         file_dialog.setFileMode(QFileDialog.FileMode.AnyFile)
         file_dialog.setOption(
-            QFileDialog.Option.DontConfirmOverwrite, self.state.getLogfileAppendMode()
+            QFileDialog.Option.DontConfirmOverwrite,
+            self.state.logfile_append_mode.get(),
         )  # ⚡ вимикає стандартний попереджувальний діалог
         result = file_dialog.exec_()
         print(result)
@@ -954,7 +824,6 @@ class SelectLogFileWidget(QWidget):
 
 
 class SettingsWidget(QWidget):
-
     def __init__(self, state: AppState, parent=None):
         super().__init__(parent)
         self.state = state
@@ -1006,7 +875,12 @@ class SettingsWidget(QWidget):
         }.items():
             self.open_mode.addItem(k, userData=v)
 
-        self.baudrate.setCurrentText(str(self.state.getBaudrate()))
+        self.state.baudrate.bind(
+            lambda value: self.baudrate.setCurrentText(str(value)),
+            self.baudrate.currentTextChanged,
+            #     self.baudrate.currentTextChanged.connect(
+            #     lambda v: self.state.setBaudrate(int(v))
+        )
         self.data_bits.setCurrentIndex(
             self.data_bits.findData(QSerialPort.DataBits(self.state.getDataBits()))
         )
@@ -1024,12 +898,14 @@ class SettingsWidget(QWidget):
         self.open_mode.setCurrentIndex(
             self.open_mode.findData(QSerialPort.OpenModeFlag(self.state.getOpenMode()))
         )
-        self.display_ctrl_chars.setChecked(self.state.getDisplayCtrlChars())
-        self.show_timestamp.setChecked(self.state.getShowTimestamp())
 
-        self.baudrate.currentTextChanged.connect(
-            lambda v: self.state.setBaudrate(int(v))
+        self.state.display_ctrl_chars.bind(
+            self.display_ctrl_chars.setChecked, self.display_ctrl_chars.toggled
         )
+        self.state.show_timestamp.bind(
+            self.show_timestamp.setChecked, self.show_timestamp.toggled
+        )
+
         self.data_bits.currentIndexChanged.connect(
             lambda v: self.state.setDataBits(self.data_bits.currentData().value)
         )
@@ -1045,8 +921,6 @@ class SettingsWidget(QWidget):
         self.open_mode.currentIndexChanged.connect(
             lambda v: self.state.setOpenMode(self.open_mode.currentData().value)
         )
-        self.display_ctrl_chars.toggled.connect(self.state.setDisplayCtrlChars)
-        self.show_timestamp.toggled.connect(self.state.setShowTimestamp)
 
         self.logfile = SelectLogFileWidget(state, self)
 
@@ -1159,13 +1033,15 @@ class InputWidget(QWidget):
         self.modem_protocol = QComboBox(self)
         self.modem_protocol.addItems(["YModem", "YModem-G", "XModem", "ZModem"])
 
-        self.line_end.setCurrentText(self.state.getLineEnd())
-        self.auto_return.setChecked(self.state.getAutoReturn())
-        self.modem_protocol.setCurrentText(self.state.getModemProtocol())
-
-        self.line_end.currentTextChanged.connect(self.state.setLineEnd)
-        self.auto_return.toggled.connect(self.state.setAutoReturn)
-        self.modem_protocol.currentTextChanged.connect(self.state.setModemProtocol)
+        self.state.line_end.bind(
+            self.line_end.setCurrentText, self.line_end.currentTextChanged
+        )
+        self.state.auto_return.bind(
+            self.auto_return.setChecked, self.auto_return.toggled
+        )
+        self.state.modem_protocol.bind(
+            self.modem_protocol.setCurrentText, self.modem_protocol.currentTextChanged
+        )
 
         self._send_file_btn = QPushButton("Send File ...")
 
@@ -1186,9 +1062,9 @@ class InputWidget(QWidget):
         self._return_btn.clicked.connect(self.on_return_triggered)
         self._send_file_btn.clicked.connect(self.on_send_file_clicked)
 
-        self.state.autoReturnChanged.connect(self.toggle_auto_return)
+        self.state.auto_return.changed.connect(self.toggle_auto_return)
         # force state set
-        self.toggle_auto_return(self.state.getAutoReturn())
+        self.toggle_auto_return(self.state.auto_return.get())
 
     def toggle_auto_return(self, state: bool):
         self._return_btn.setDisabled(state)
@@ -1249,16 +1125,15 @@ class OutputViewWidget(QWidget):
         self.log_to_file = QCheckBox("Logging to:")
         self.log_to_file.setDisabled(True)
 
-        self.hex_output.setChecked(self.state.getHexOutput())
-        self.log_to_file.setChecked(self.state.getLogToFile())
-
-        self.hex_output.toggled.connect(self.state.setHexOutput)
-        self.log_to_file.toggled.connect(self.state.setLogToFile)
+        self.state.hex_output.bind(self.hex_output.setChecked, self.hex_output.toggled)
+        self.state.log_to_file.bind(
+            self.log_to_file.setChecked, self.log_to_file.toggled
+        )
 
         self.clear_button = QPushButton("Clear")
         self.logfile = QLabel("")
 
-        self.state.logfileChanged.connect(self.logfile.setText)
+        self.state.logfile.changed.connect(self.logfile.setText)
 
         self.hlt = QHBoxLayout()
         self.hlt.setContentsMargins(0, 0, 0, 0)
@@ -1433,7 +1308,7 @@ class CentralWidget(QWidget):
             stop_bits = "1.5"
         text = "Device: {port}\tConnection: {baud} @ {bits}-{parity}-{stop}".format(
             port=self.serial_manager.select.currentText(),
-            baud=self.state.getBaudrate(),
+            baud=self.state.baudrate.get(),
             bits=self.state.getDataBits(),
             parity=QSerialPort.Parity(self.state.getParity()).name[0],
             stop=stop_bits,
@@ -1443,7 +1318,7 @@ class CentralWidget(QWidget):
     def on_send_clicked(self, text):
         self.input_history.add(text)
 
-        line_end = self.state.getLineEnd()
+        line_end = self.state.line_end.get()
         line_end_symbols = ""
         match line_end:
             case "LF":
