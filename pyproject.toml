@@ -30,7 +30,7 @@ classifiers = [
 dependencies = [
     "pyside6>=6.10.1",
     "qtpy>=2.4.3",
-    "ymodem",
+    "ymodem>=1.5.2",
 ]
 dynamic = ["version"]
 
