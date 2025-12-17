@@ -4,6 +4,7 @@ from pathlib import Path
 from queue import Queue, Empty
 import time
 from enum import Enum
+from html import escape
 
 from ymodem.Protocol import ProtocolType
 from ymodem.Socket import ModemSocket
@@ -87,6 +88,54 @@ CTRL_NAMES = {
 }
 
 
+# def decode_with_hex_fallback(
+#     data: bytes,
+#     *,
+#     hex_output: bool = False,
+#     display_ctrl_chars: bool = False,
+# ) -> str:
+#     # 1️⃣ Hex mode
+#     if hex_output:
+#         return " ".join(f"{b:02X}" for b in data)
+
+#     out: list[str] = []
+#     i = 0
+
+#     while i < len(data):
+#         b = data[i]
+
+#         # ---------- ASCII (включно з control chars) ----------
+#         if b < 0x80:
+#             if b < 0x20 or b == 0x7F:
+#                 # control chars
+#                 if display_ctrl_chars:
+#                     out.append(CTRL_NAMES.get(b, f"\\x{b:02X}"))
+#                 else:
+#                     out.append(chr(b))  # ← ПЛЕЙН ТЕКСТ
+#             else:
+#                 out.append(chr(b))
+
+#             i += 1
+#             continue
+
+#         # ---------- UTF-8 ----------
+#         try:
+#             char = data[i:].decode("utf-8", errors="strict")
+#             out.append(char)
+#             break
+
+#         except UnicodeDecodeError as e:
+#             if e.start > 0:
+#                 out.append(data[i : i + e.start].decode("utf-8", errors="strict"))
+#                 i += e.start
+#             else:
+#                 # реально битий байт
+#                 out.append(f"<0x{b:02X}>")
+#                 i += 1
+
+#     return "".join(out)
+
+
 def decode_with_hex_fallback(
     data: bytes,
     *,
@@ -108,9 +157,9 @@ def decode_with_hex_fallback(
             if b < 0x20 or b == 0x7F:
                 # control chars
                 if display_ctrl_chars:
-                    out.append(CTRL_NAMES.get(b, f"\\x{b:02X}"))
+                    out.append(f"<0x{b:02X}>")
                 else:
-                    out.append(chr(b))  # ← ПЛЕЙН ТЕКСТ
+                    out.append(chr(b))
             else:
                 out.append(chr(b))
 
@@ -118,22 +167,36 @@ def decode_with_hex_fallback(
             continue
 
         # ---------- UTF-8 ----------
-        try:
-            char = data[i:].decode("utf-8", errors="strict")
-            out.append(char)
-            break
+        # Визначаємо довжину UTF-8 послідовності
+        if (b & 0b11100000) == 0b11000000:
+            seq_len = 2
+        elif (b & 0b11110000) == 0b11100000:
+            seq_len = 3
+        elif (b & 0b11111000) == 0b11110000:
+            seq_len = 4
+        else:
+            # Невалідний стартовий байт UTF-8
+            out.append(f"<0x{b:02X}>")
+            i += 1
+            continue
 
-        except UnicodeDecodeError as e:
-            if e.start > 0:
-                out.append(data[i : i + e.start].decode("utf-8", errors="strict"))
-                i += e.start
-            else:
-                # реально битий байт
-                out.append(f"<0x{b:02X}>")
-                i += 1
+        # Перевіряємо, чи вистачає байтів
+        if i + seq_len > len(data):
+            out.append(f"<0x{b:02X}>")
+            i += 1
+            continue
+
+        # Спробуємо декодувати послідовність
+        try:
+            char = data[i:i + seq_len].decode("utf-8", errors="strict")
+            out.append(char)
+            i += seq_len
+        except UnicodeDecodeError:
+            # Якщо декодування не вдалося
+            out.append(f"<0x{b:02X}>")
+            i += 1
 
     return "".join(out)
-
 
 _DEFAULTS = {
     "AutoReconnect": False,
@@ -206,63 +269,39 @@ class QModemSocket(ModemSocket):
         """Override _abort so it works even with cancel"""
         logger.debug("[MODEM] Calling _abort")
         return super()._abort()
-
-    # def _read_and_wait(self, wait_chars, wait_time=1):
-    #     """
-    #     Reads data with a cancel check every 100 ms
-    #     """
-    #     start_time = time.perf_counter()
-
-    #     while not self._canceled:
-    #         elapsed = time.perf_counter() - start_time
-    #         if elapsed > wait_time:
-    #             return None
-
-    #         # Read with a short timeout for fast response to cancel
-    #         # read() has a timeout, so it won't be a spinlock
-    #         c = self.read(1, timeout=0.1)
-
-    #         if c and len(c) > 0:
-    #             byte_val = c[0] if isinstance(c, bytes) else ord(c)
-    #             if byte_val in wait_chars:
-    #                 return byte_val
-
-    #         # Let Qt handle the events
-    #         QCoreApplication.processEvents()
-
-    #     # If canceled - return None
-    #     logger.debug("[MODEM] _read_and_wait: canceled")
-    #     return None
-
-    # def _write_and_wait(self, write_char, wait_chars, wait_time=1):
-    #     """
-    #     Writes data and waits for a response with a check on cancel
-    #     """
-    #     if self._canceled:
-    #         return None
-
-    #     self.write(write_char)
-    #     start_time = time.perf_counter()
-
-    #     while not self._canceled:
-    #         elapsed = time.perf_counter() - start_time
-    #         if elapsed > wait_time:
-    #             return None
-
-    #         # Read with a short timeout
-    #         c = self.read(1, timeout=0.1)
-
-    #         if c and len(c) > 0:
-    #             byte_val = c[0] if isinstance(c, bytes) else ord(c)
-    #             if byte_val in wait_chars:
-    #                 return byte_val
-
-    #         # Let Qt handle the events
-    #         QCoreApplication.processEvents()
-
-    #     logger.debug("[MODEM] _write_and_wait: canceled")
-    #     return None
-
+    
+    def _read_and_wait(self, 
+                        wait_chars: List[str],
+                        wait_time: int = 1
+                        ) -> Optional[str]:
+        start_time = time.perf_counter()
+        while True:
+            if self._canceled:
+                return None
+            t = time.perf_counter() - start_time
+            if t > wait_time:
+                return None
+            c = self.read(1)
+            if c in wait_chars:
+                return c
+    
+    def _write_and_wait(self, 
+                        write_char: str, 
+                        wait_chars: List[str],
+                        wait_time: int = 1
+                        ) -> Optional[str]:
+        start_time = time.perf_counter()
+        self.write(write_char)
+        while True:
+            if self._canceled:
+                return None
+            t = time.perf_counter() - start_time
+            if t > wait_time:
+                return None
+            c = self.read(1)
+            if c in wait_chars:
+                return c
+    
     def send(self, paths, callback=None):
         """
         Override send to check for cancel at the beginning
@@ -1212,7 +1251,6 @@ class OutputViewWidget(QWidget):
             return
 
         prepared_string = prefix + output_string + suffix
-
         self.text_view.insertPlainText(prepared_string)
         self.text_view.verticalScrollBar().setValue(
             self.text_view.verticalScrollBar().maximum()
