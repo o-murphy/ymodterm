@@ -39,6 +39,7 @@ from qtpy.QtCore import (
     Signal,
     Property,
     QStringListModel,
+    QEvent,
 )
 from qtpy.QtSerialPort import QSerialPort, QSerialPortInfo
 
@@ -376,10 +377,32 @@ class ModemTransferManager(QObject):
         pass
 
 
+class StatefullProperty(QObject):
+    changed = Signal(object)
+
+    def __init__(self, initial_value, typ = object, /, parent = None, *, objectName = None):
+        super().__init__(parent, objectName=objectName)
+        self.value = initial_value
+        self.typ = typ
+
+    def get(self):
+        return self.value
+    
+    def set(self, value):
+        if not isinstance(value, self.typ) and self.typ is not object:
+            value = self.typ(value)
+        if self.value != value:
+            self.value = value
+            self.changed.emit(value)
+
+    def bind(self, value_setter, change_event: Signal):
+        
+        change_event.connect(self.set)
+        value_setter(self.value)
+
+
 class AppState(QObject):
     autoReconnectChanged = Signal(bool)
-    rtsChanged = Signal(bool)
-    dtrChanged = Signal(bool)
     lineEndChanged = Signal(str)
     autoReturnChanged = Signal(bool)
     modemProtocolChanged = Signal(str)
@@ -401,8 +424,10 @@ class AppState(QObject):
         self.settings = QSettings("o-murphy", "ymodterm")
 
         self._auto_reconnect = False
-        self._rts = False
-        self._dtr = True
+        
+        self.rts = StatefullProperty(False, bool, parent=self, objectName="RTS")
+        self.dtr = StatefullProperty(True, bool, parent=self, objectName="DTR")
+
         self._line_end = "CR"
         self._auto_return = False
         self._modem_protocol = "YModem"
@@ -421,8 +446,8 @@ class AppState(QObject):
 
     def restore_settings(self):
         try:
-            self.setRts(self.settings.value("RTS", _DEFAULTS.get("RTS", False), bool))
-            self.setDtr(self.settings.value("DTR", _DEFAULTS.get("DTR", True), bool))
+            self.rts.set(self.settings.value("RTS", _DEFAULTS.get("RTS", True), self.rts.typ))
+            self.dtr.set(self.settings.value("DTR", _DEFAULTS.get("DTR", True), self.dtr.typ))
             self.setAutoReconnect(
                 self.settings.value(
                     "AutoReconnect", _DEFAULTS.get("AutoReconnect", False), bool
@@ -518,8 +543,8 @@ class AppState(QObject):
             self.save_settings()
 
     def save_settings(self):
-        self.settings.setValue("RTS", self.getRts())
-        self.settings.setValue("DTR", self.getDtr())
+        self.settings.setValue("RTS", self.rts.get())
+        self.settings.setValue("DTR", self.dtr.get())
         self.settings.setValue("AutoReconnect", self.getAutoReconnect())
         self.settings.setValue("LineEnd", self.getLineEnd())
         self.settings.setValue("AutoReturn", self.getAutoReturn())
@@ -547,24 +572,6 @@ class AppState(QObject):
         if self._auto_reconnect != value:
             self._auto_reconnect = value
             self.autoReconnectChanged.emit(value)
-
-    # --- RTS ---
-    def getRts(self) -> bool:
-        return self._rts
-
-    def setRts(self, value: bool):
-        if self._rts != value:
-            self._rts = value
-            self.rtsChanged.emit(value)
-
-    # --- DTR ---
-    def getDtr(self) -> bool:
-        return self._dtr
-
-    def setDtr(self, value: bool):
-        if self._dtr != value:
-            self._dtr = value
-            self.dtrChanged.emit(value)
 
     # --- Line End ---
     def getLineEnd(self) -> str:
@@ -701,37 +708,6 @@ class AppState(QObject):
             self._logfile = value
             self.logfileChanged.emit(value)
 
-    rts = Property(bool, getRts, setRts, notify=rtsChanged)
-    dtr = Property(bool, getDtr, setDtr, notify=dtrChanged)
-    auto_reconnect = Property(
-        bool, getAutoReconnect, setAutoReconnect, notify=autoReconnectChanged
-    )
-    line_end = Property(str, getLineEnd, setLineEnd, notify=lineEndChanged)
-    auto_return = Property(bool, getAutoReturn, setAutoReturn, notify=autoReturnChanged)
-    modem_protocol = Property(
-        str, getModemProtocol, setModemProtocol, notify=modemProtocolChanged
-    )
-    hex_output = Property(bool, getHexOutput, setHexOutput, notify=hexOutputChanged)
-    log_to_file = Property(bool, getLogToFile, setLogToFile, notify=logToFileChanged)
-    baudrate = Property(int, getBaudrate, setBaudrate, notify=baudrateChanged)
-    data_bits = Property(int, getDataBits, setDataBits, notify=dataBitsChanged)
-    flow_ctrl = Property(int, getFlowControl, setFlowControl, notify=flowControlChanged)
-    stop_bits = Property(int, getStopBits, setStopBits, notify=stopBitsChanged)
-    parity = Property(int, getParity, setParity, notify=parityChanged)
-    open_mode = Property(int, getOpenMode, setOpenMode, notify=openModeChanged)
-    logfile_append_mode = Property(
-        bool, getLogfileAppendMode, setLogfileAppendMode, notify=logfileAppendModeChanged
-    )
-    display_ctrl_chars = Property(
-        bool, getDisplayCtrlChars, setDisplayCtrlChars, notify=displayCtrlCharsChanged
-    )
-    show_timestamp = Property(
-        bool, getShowTimestamp, setShowTimestamp, notify=showTimestampChanged
-    )
-    logfile = Property(
-        str, getLogfile, setLogfile, notify=logfileChanged
-    )
-
 
 class SerialManagerWidget(QWidget):
     REFRESH_INTERVAL_MS = 3000
@@ -766,10 +742,11 @@ class SerialManagerWidget(QWidget):
         self.rts = QCheckBox("RTS")
         self.dtr = QCheckBox("DTR")
 
-        # load state
+        # bind state
+        self.state.rts.bind(self.rts.setChecked, self.rts.toggled)
+        self.state.dtr.bind(self.dtr.setChecked, self.dtr.toggled)
+
         self.auto_reconnect.setChecked(self.state.getAutoReconnect())
-        self.rts.setChecked(self.state.getRts())
-        self.dtr.setChecked(self.state.getDtr())
 
         self._settings_btn = QPushButton("Show Settings")
 
@@ -799,12 +776,10 @@ class SerialManagerWidget(QWidget):
 
         # bind to app state
         self.auto_reconnect.toggled.connect(self.state.setAutoReconnect)
-        self.rts.toggled.connect(self.state.setRts)
-        self.dtr.toggled.connect(self.state.setDtr)
 
         # bind callbacks
-        self.state.rtsChanged.connect(self._update_rts)
-        self.state.dtrChanged.connect(self._update_dtr)
+        self.state.rts.changed.connect(self._update_dtr)
+        self.state.dtr.changed.connect(self._update_dtr)
 
         # <<< Run timer on init
         self.refresh_timer.start(self.REFRESH_INTERVAL_MS)
