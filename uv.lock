@@ -130,10 +130,14 @@ wheels = [
 [[package]]
 name = "ymodem"
 version = "1.5.1"
-source = { git = "https://github.com/o-murphy/ymodem.git#7ec3a9546b1f0ad4d742a4028d2f8c3d871188d6" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ordered-set" },
     { name = "pyserial" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/df/db/d96a2c259933916bc5062b8f8a297493fcbe44bd9a0f42579cc5f532f9b2/ymodem-1.5.1.tar.gz", hash = "sha256:e4373cd6c8d29629495dbffdd9ed187b07f27381231d55d3a137025320d5ce67", size = 22149, upload-time = "2024-05-15T07:29:48.887Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/90/44/9f09d0efaddcc253b4b35fbe26bf419aa40c15f0554df3fbffdf5f5404a3/ymodem-1.5.1-py3-none-any.whl", hash = "sha256:55fccfe7243e35bc96d70d6c8778f4ddd1a23f61ea5404cf30470cc5ffe900b3", size = 21417, upload-time = "2024-05-15T07:29:47.755Z" },
 ]
 
 [[package]]
@@ -154,7 +158,7 @@ dev = [
 requires-dist = [
     { name = "pyside6", specifier = ">=6.10.1" },
     { name = "qtpy", specifier = ">=2.4.3" },
-    { name = "ymodem", git = "https://github.com/o-murphy/ymodem.git" },
+    { name = "ymodem" },
 ]
 
 [package.metadata.requires-dev]

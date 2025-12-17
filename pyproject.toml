@@ -42,9 +42,6 @@ dynamic = ["version"]
 [project.scripts]
 ymodterm = "ymodterm.__main__:main"
 
-[tool.uv.sources]
-ymodem = { git = "https://github.com/o-murphy/ymodem.git" }
-
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["ymodterm*"]
