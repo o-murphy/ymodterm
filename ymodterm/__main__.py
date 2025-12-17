@@ -202,10 +202,10 @@ class QModemSocket(ModemSocket):
         self._canceled = True
         logger.info("[MODEM] Transfer cancellation requested")
 
-    # def _abort(self):
-    #     """Override _abort so it works even with cancel"""
-    #     logger.debug("[MODEM] Calling _abort")
-    #     return super()._abort()
+    def _abort(self):
+        """Override _abort so it works even with cancel"""
+        logger.debug("[MODEM] Calling _abort")
+        return super()._abort()
 
     # def _read_and_wait(self, wait_chars, wait_time=1):
     #     """
@@ -263,39 +263,39 @@ class QModemSocket(ModemSocket):
     #     logger.debug("[MODEM] _write_and_wait: canceled")
     #     return None
 
-    # def send(self, paths, callback=None):
-    #     """
-    #     Override send to check for cancel at the beginning
-    #     """
-    #     if self._canceled:
-    #         logger.info("[MODEM] Send aborted: already canceled")
-    #         return False
+    def send(self, paths, callback=None):
+        """
+        Override send to check for cancel at the beginning
+        """
+        if self._canceled:
+            logger.info("[MODEM] Send aborted: already canceled")
+            return False
 
-    #     try:
-    #         return super().send(paths, callback)
-    #     except Exception as e:
-    #         if self._canceled:
-    #             logger.info("[MODEM] Send interrupted by cancellation")
-    #             self._abort()  # Sending CAN
-    #             return False
-    #         raise
+        try:
+            return super().send(paths, callback)
+        except Exception as e:
+            if self._canceled:
+                logger.info("[MODEM] Send interrupted by cancellation")
+                self._abort()  # Sending CAN
+                return False
+            raise
 
-    # def recv(self, save_directory, callback=None):
-    #     """
-    #     Override recv to check cancel
-    #     """
-    #     if self._canceled:
-    #         logger.info("[MODEM] Recv aborted: already canceled")
-    #         return False
+    def recv(self, save_directory, callback=None):
+        """
+        Override recv to check cancel
+        """
+        if self._canceled:
+            logger.info("[MODEM] Recv aborted: already canceled")
+            return False
 
-    #     try:
-    #         return super().recv(save_directory, callback)
-    #     except Exception as e:
-    #         if self._canceled:
-    #             logger.info("[MODEM] Recv interrupted by cancellation")
-    #             self._abort()  # Sending CAN
-    #             return False
-    #         raise
+        try:
+            return super().recv(save_directory, callback)
+        except Exception as e:
+            if self._canceled:
+                logger.info("[MODEM] Recv interrupted by cancellation")
+                self._abort()  # Sending CAN
+                return False
+            raise
 
 
 class QSerialPortModemAdapter(QObject):
