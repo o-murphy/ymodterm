@@ -1541,6 +1541,12 @@ def parse_cli_args():
         def __call__(self, parser, namespace, values, option_string=None):
             setattr(namespace, self.dest, self.mapping[values])
 
+    class ModemAction(argparse.Action):
+        mapping = {"X": "XModem", "Y": "YModem", "YG": "YModem-G", "Z": "ZModem"}
+
+        def __call__(self, parser, namespace, values, option_string=None):
+            setattr(namespace, self.dest, self.mapping[values])
+
     parser = argparse.ArgumentParser("ymodterm")
     parser.add_argument("-p", "--port", type=str, help="COM port")
     parser.add_argument("-b", "--baudrate", type=int, help="Baudrate, default 115200")
@@ -1572,13 +1578,13 @@ def parse_cli_args():
     parser.add_argument(
         "-m",
         "--modem",
-        type=str,
-        choices=_MODEM_PROTOCOL_LIST,
+        action=ModemAction,
+        choices=ModemAction.mapping.keys(),
         help="Modem protocol type",
     )
     parser.add_argument("-d", "--debug", action="store_true", help="Enable debug")
     parser.add_argument("-V", "--version", action="version", version=__version__)
-    
+
     ns = parser.parse_args()
     if ns.debug:
         logging.basicConfig(level=logging.DEBUG, format="%(message)s")
