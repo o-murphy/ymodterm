@@ -3,6 +3,7 @@ import time
 import logging
 import signal
 import argparse
+from html import escape
 from enum import Enum
 from pathlib import Path
 from queue import Queue, Empty
@@ -23,7 +24,7 @@ from qtpy.QtWidgets import (
     QComboBox,
     QPushButton,
     QMessageBox,
-    QPlainTextEdit,
+    QTextEdit,
     QLineEdit,
     QCheckBox,
     QGridLayout,
@@ -70,22 +71,57 @@ def parse_hex_string_to_bytes(hex_string: str) -> bytes:
         raise ValueError(f"Invalid hex symbol: {e}")
 
 
-CTRL_NAMES = {
-    0x00: "^@",
-    0x01: "^A",
-    0x02: "^B",
-    0x03: "^C",
-    0x04: "^D",
-    0x05: "^E",
-    0x06: "^F",
-    0x07: "^G",
-    0x08: "\\b",
-    0x09: "\\t",
-    0x0A: "\\n",
-    0x0B: "\\v",
-    0x0C: "\\f",
-    0x0D: "\\r",
-    0x7F: "^?",
+# Mapping ASCII control characters to Unicode Control Pictures (U+2400–U+243F)
+CTRL_PICTURES = {
+    0x00: "␀",  # NULL
+    0x01: "␁",  # START OF HEADING
+    0x02: "␂",  # START OF TEXT
+    0x03: "␃",  # END OF TEXT
+    0x04: "␄",  # END OF TRANSMISSION
+    0x05: "␅",  # ENQUIRY
+    0x06: "␆",  # ACKNOWLEDGE
+    0x07: "␇",  # BELL
+    0x08: "␈",  # BACKSPACE
+    0x09: "␉",  # HORIZONTAL TABULATION
+    0x0A: "␊",  # LINE FEED
+    0x0B: "␋",  # VERTICAL TABULATION
+    0x0C: "␌",  # FORM FEED
+    0x0D: "␍",  # CARRIAGE RETURN
+    0x0E: "␎",  # SHIFT OUT
+    0x0F: "␏",  # SHIFT IN
+    0x10: "␐",  # DATA LINK ESCAPE
+    0x11: "␑",  # DEVICE CONTROL ONE
+    0x12: "␒",  # DEVICE CONTROL TWO
+    0x13: "␓",  # DEVICE CONTROL THREE
+    0x14: "␔",  # DEVICE CONTROL FOUR
+    0x15: "␕",  # NEGATIVE ACKNOWLEDGE
+    0x16: "␖",  # SYNCHRONOUS IDLE
+    0x17: "␗",  # END OF TRANSMISSION BLOCK
+    0x18: "␘",  # CANCEL
+    0x19: "␙",  # END OF MEDIUM
+    0x1A: "␚",  # SUBSTITUTE
+    0x1B: "␛",  # ESCAPE
+    0x1C: "␜",  # FILE SEPARATOR
+    0x1D: "␝",  # GROUP SEPARATOR
+    0x1E: "␞",  # RECORD SEPARATOR
+    0x1F: "␟",  # UNIT SEPARATOR
+    0x7F: "␡",  # DELETE
+}
+
+# Unicode bidirectional control characters
+BIDI_CHARS = {
+    "\u061c",  # ARABIC LETTER MARK
+    "\u200e",  # LEFT-TO-RIGHT MARK
+    "\u200f",  # RIGHT-TO-LEFT MARK
+    "\u202a",  # LEFT-TO-RIGHT EMBEDDING
+    "\u202b",  # RIGHT-TO-LEFT EMBEDDING
+    "\u202c",  # POP DIRECTIONAL FORMATTING
+    "\u202d",  # LEFT-TO-RIGHT OVERRIDE
+    "\u202e",  # RIGHT-TO-LEFT OVERRIDE
+    "\u2066",  # LEFT-TO-RIGHT ISOLATE
+    "\u2067",  # RIGHT-TO-LEFT ISOLATE
+    "\u2068",  # FIRST STRONG ISOLATE
+    "\u2069",  # POP DIRECTIONAL ISOLATE
 }
 
 
@@ -95,7 +131,7 @@ def decode_with_hex_fallback(
     hex_output: bool = False,
     display_ctrl_chars: bool = False,
 ) -> str:
-    # 1️⃣ Hex mode
+    # MODE 1: Hex output
     if hex_output:
         return " ".join(f"{b:02X}" for b in data)
 
@@ -105,22 +141,29 @@ def decode_with_hex_fallback(
     while i < len(data):
         b = data[i]
 
-        # ---------- ASCII (включно з control chars) ----------
+        # ASCII (including control chars)
         if b < 0x80:
-            if b < 0x20 or b == 0x7F:
-                # control chars
-                if display_ctrl_chars:
-                    out.append(f"<0x{b:02X}>")
-                else:
-                    out.append(chr(b))
+            char = chr(b)
+
+            # MODE 2: Display control chars
+            if display_ctrl_chars and (b < 0x20 or b == 0x7F):
+                ctrl_char = CTRL_PICTURES.get(b, char)
+                out.append(f'<span style="color: red;">{escape(ctrl_char)}</span>')
             else:
-                out.append(chr(b))
+                # MODE 3: Plain output
+                # Convert newlines to <br>, but keep other chars as is
+                if b == 0x0A:  # LF
+                    out.append("<br>")
+                elif b == 0x0D:  # CR
+                    out.append("")  # Ignore CR (usually comes with LF)
+                else:
+                    out.append(escape(char))
 
             i += 1
             continue
 
-        # ---------- UTF-8 ----------
-        # Визначаємо довжину UTF-8 послідовності
+        # UTF-8
+        # Determine UTF-8 sequence length
         if (b & 0b11100000) == 0b11000000:
             seq_len = 2
         elif (b & 0b11110000) == 0b11100000:
@@ -128,25 +171,33 @@ def decode_with_hex_fallback(
         elif (b & 0b11111000) == 0b11110000:
             seq_len = 4
         else:
-            # Невалідний стартовий байт UTF-8
-            out.append(f"<0x{b:02X}>")
+            # Invalid UTF-8 start byte - show as magenta
+            out.append(f'<span style="color: magenta;">&lt;0x{b:02X}&gt;</span>')
             i += 1
             continue
 
-        # Перевіряємо, чи вистачає байтів
+        # Check if we have enough bytes
         if i + seq_len > len(data):
-            out.append(f"<0x{b:02X}>")
+            out.append(f'<span style="color: magenta;">&lt;0x{b:02X}&gt;</span>')
             i += 1
             continue
 
-        # Спробуємо декодувати послідовність
+        # Try to decode the sequence
         try:
             char = data[i : i + seq_len].decode("utf-8", errors="strict")
-            out.append(char)
+
+            # MODE 2: Check if it's a bidirectional control character
+            if display_ctrl_chars and char in BIDI_CHARS:
+                escaped_seq = char.encode("unicode_escape").decode("ascii")
+                out.append(f'<span style="color: red;">{escape(escaped_seq)}</span>')
+            else:
+                # MODE 3: Plain output
+                out.append(escape(char))
+
             i += seq_len
         except UnicodeDecodeError:
-            # Якщо декодування не вдалося
-            out.append(f"<0x{b:02X}>")
+            # If decoding failed - show as magenta
+            out.append(f'<span style="color: magenta;">&lt;0x{b:02X}&gt;</span>')
             i += 1
 
     return "".join(out)
@@ -783,6 +834,7 @@ class SerialManagerWidget(QWidget):
     def setConfigutrationEnabled(self, enabled: bool):
         self.select_port.setEnabled(enabled)
         self.settings_btn.setEnabled(enabled)
+        self.settings.setEnabled(enabled)
 
     def toggle_settings(self):
         self.settings.toggle()
@@ -1172,8 +1224,14 @@ class OutputViewWidget(QWidget):
         super().__init__(parent)
         self.state = state
 
-        self.text_view = QPlainTextEdit(self)
+        self.text_view = QTextEdit(self)
         self.text_view.setReadOnly(True)
+        self.text_view.setAcceptRichText(True)
+        self.text_view.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        self.text_view.zoomIn(3)
 
         self.hex_output = CheckBox("Hex Output")
         self.log_to_file = CheckBox("Logging to:")
@@ -1222,7 +1280,7 @@ class OutputViewWidget(QWidget):
             return
 
         prepared_string = prefix + output_string + suffix
-        self.text_view.insertPlainText(prepared_string)
+        self.text_view.insertHtml(prepared_string)
         self.text_view.verticalScrollBar().setValue(
             self.text_view.verticalScrollBar().maximum()
         )
@@ -1419,7 +1477,9 @@ class CentralWidget(QWidget):
             "Prepare to transfer...", "Cancel", 0, 100, self
         )
         self.progress_dialog.setMinimumWidth(400)
-        self.progress_dialog.setWindowTitle(f"{protocol.name} Transfer")
+        self.progress_dialog.setWindowTitle(
+            f"{self.state.modem_protocol.get()} Transfer"
+        )
         self.progress_dialog.setModal(True)
         self.progress_dialog.setMinimumDuration(0)
 
@@ -1509,7 +1569,7 @@ class YModTermWindow(QMainWindow):
 
         # 1. Configure the main window properties
         self.setWindowTitle(f"YModTerm - v{__version__}")
-        self.setGeometry(100, 100, 600, 400)  # x, y, width, height
+        self.setGeometry(100, 100, 600, 500)  # x, y, width, height
 
         # 2. Create a central widget and layout
         # QMainWindow requires a central widget to host other UI elements
