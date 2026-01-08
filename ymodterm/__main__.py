@@ -35,7 +35,16 @@ from qtpy.QtWidgets import (
     QMenu,
     QSplitter,
 )
-from qtpy.QtGui import QIntValidator, QTextCursor, QTextCharFormat, QColor
+from qtpy.QtGui import (
+    QIntValidator,
+    QTextCursor,
+    QTextCharFormat,
+    QColor,
+    QKeyEvent,
+    QKeySequence,
+    QShortcut,
+)
+
 from qtpy.QtCore import (
     Qt,
     QObject,
@@ -739,11 +748,23 @@ class SerialManagerWidget(QWidget):
 
         self.connect_btn = QPushButton("Connect")
 
+        self.connect_shortcut = QShortcut(QKeySequence("F1"), self)
+        self.connect_shortcut.activated.connect(self.toggle_connect)
+
+        self.port_select_shortcut = QShortcut(QKeySequence("F2"), self)
+        self.port_select_shortcut.activated.connect(
+            lambda: self.select_port.showPopup()
+            if self.select_port.isEnabled()
+            else None
+        )
+
         # create widgets
         self.auto_reconnect = CheckBox("Auto Reconnect")
         self.auto_reconnect.setDisabled(True)
         self.rts = CheckBox("RTS")
+        self.rts.setShortcut(QKeySequence("F3"))
         self.dtr = CheckBox("DTR")
+        self.dtr.setShortcut(QKeySequence("F4"))
 
         # bind state
         self.rts.bind(self.state.rts)
@@ -826,7 +847,7 @@ class SerialManagerWidget(QWidget):
                 self.select_port.setCurrentText(current_port_text)
             elif self.ports:
                 # Select the last port if the list is not empty
-                self.select_port.setCurrentIndex(len(self.ports) - 1)
+                self.select_port.setCurrentIndex(0)
 
         self.select_port.setStyleSheet("combobox-popup: 0;")
         self.select_port.setMaxVisibleItems(10)
@@ -1219,17 +1240,64 @@ class HLineWidget(QFrame):
         self.setFrameShadow(QFrame.Sunken)
 
 
+class TerminalOutputTextEdit(QTextEdit):
+    """Custom QTextEdit that redirects typing to input field"""
+
+    keyPressHandled = Signal(QKeyEvent)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+    def keyPressEvent(self, event):
+        modifiers = event.modifiers()
+        key = event.key()
+
+        if modifiers & Qt.KeyboardModifier.ControlModifier:
+            super().keyPressEvent(event)
+            return
+
+        if modifiers & Qt.KeyboardModifier.AltModifier:
+            super().keyPressEvent(event)
+            return
+
+        if key in (
+            Qt.Key.Key_Up,
+            Qt.Key.Key_Down,
+            Qt.Key.Key_Left,
+            Qt.Key.Key_Right,
+            Qt.Key.Key_PageUp,
+            Qt.Key.Key_PageDown,
+            Qt.Key.Key_Home,
+            Qt.Key.Key_End,
+            Qt.Key.Key_Escape,
+            Qt.Key.Key_Tab,
+            Qt.Key.Key_Backspace,
+            Qt.Key.Key_Delete,
+        ):
+            super().keyPressEvent(event)
+            return
+
+        # Перевірити чи є текст для вводу
+        text = event.text()
+        if text:
+            self.keyPressHandled.emit(event)
+        else:
+            # Спеціальна клавіша без тексту
+            super().keyPressEvent(event)
+
+
 class OutputViewWidget(QWidget):
     def __init__(self, state: AppState, parent=None):
         super().__init__(parent)
         self.state = state
 
-        self.text_view = QTextEdit(self)
-        self.text_view.setReadOnly(True)
+        self.text_view = TerminalOutputTextEdit(self)
+        # self.text_view.setReadOnly(False)
         self.text_view.setAcceptRichText(True)
         self.text_view.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
             | Qt.TextInteractionFlag.TextSelectableByKeyboard
+            | Qt.TextInteractionFlag.TextEditable
         )
         self.text_view.zoomIn(3)
 
@@ -1280,6 +1348,12 @@ class OutputViewWidget(QWidget):
             return
 
         prepared_string = prefix + output_string + suffix
+
+        # Move cursor to end before inserting
+        cursor = self.text_view.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        self.text_view.setTextCursor(cursor)
+
         self.text_view.insertHtml(prepared_string)
         self.text_view.verticalScrollBar().setValue(
             self.text_view.verticalScrollBar().maximum()
@@ -1412,6 +1486,11 @@ class CentralWidget(QWidget):
 
         self.on_connection_state_changed(False)  # force on init
 
+        self.output_view.text_view.keyPressHandled.connect(self.onTextViewKeyPressed)
+
+    def onTextViewKeyPressed(self, event: QKeyEvent):
+        self.input_widget.edit.insert(event.text())
+
     def on_connection_state_changed(self, state: bool):
         stop_bits = self.state.stop_bits.get()
         if stop_bits == 3:
@@ -1424,6 +1503,7 @@ class CentralWidget(QWidget):
             stop=stop_bits,
         )
         self.status.setText(text)
+        self.input_widget.edit.setFocus()
 
     def on_send_clicked(self, text):
         self.input_history.add(text)
