@@ -1,18 +1,16 @@
 [build-system]
-requires = ["setuptools>=80.9", "setuptools-scm>=9.2"]
+requires = ["setuptools", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "ymodterm"
-authors = [
-    { name="o-murphy" },
-]
+authors = [{ name = "o-murphy" }]
 
 description = "Serial terminal with Y-Modem transfer support"
 readme = "README.md"
 requires-python = ">=3.10"
 keywords = ["serial", "uart", "ymodem", "xmodem"]
-license = {file = "LICENSE"}
+license = { file = "LICENSE" }
 classifiers = [
     "Intended Audience :: Developers",
     "Natural Language :: English",
@@ -27,11 +25,7 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Programming Language :: Python :: Implementation :: CPython",
 ]
-dependencies = [
-    "pyside6>=6.10.1",
-    "qtpy>=2.4.3",
-    "ymodem>=1.5.3",
-]
+dependencies = ["pyside6>=6.11.1", "qtpy>=2.4.3", "ymodem>=1.5.3"]
 dynamic = ["version"]
 
 [project.urls]
@@ -50,7 +44,4 @@ include = ["ymodterm*"]
 fallback_version = "0.0.0.dev0"
 
 [dependency-groups]
-dev = [
-    "ruff>=0.14.9",
-    "pre-commit>=2.21.0"
-]
+dev = ["ruff>=0.15.21", "pre-commit>=2.21.0"]
