@@ -1,60 +1,59 @@
-import sys
-import time
+import argparse
 import logging
 import signal
-import argparse
-from html import escape
+import sys
+import time
+from collections.abc import Callable
 from enum import Enum
+from html import escape
 from pathlib import Path
-from queue import Queue, Empty
+from queue import Empty, Queue
+from typing import Any, ClassVar
 
-from typing import Optional, Union, List, Callable, Any
-
-from ymodem.Protocol import ProtocolType
-from ymodem.Socket import ModemSocket
+from qtpy.QtCore import (
+    QCoreApplication,
+    QObject,
+    QSettings,
+    QStringListModel,
+    Qt,
+    QTimer,
+    Signal,
+)
+from qtpy.QtGui import (
+    QColor,
+    QIntValidator,
+    QKeyEvent,
+    QKeySequence,
+    QShortcut,
+    QTextCharFormat,
+    QTextCursor,
+)
+from qtpy.QtSerialPort import QSerialPort, QSerialPortInfo
 
 # Import necessary classes from qtpy
 from qtpy.QtWidgets import (
     QApplication,
-    QMainWindow,
-    QLabel,
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QComboBox,
-    QPushButton,
-    QMessageBox,
-    QTextEdit,
-    QLineEdit,
     QCheckBox,
-    QGridLayout,
-    QFrame,
+    QComboBox,
     QFileDialog,
-    QProgressDialog,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
     QListView,
+    QMainWindow,
     QMenu,
+    QMessageBox,
+    QProgressDialog,
+    QPushButton,
     QSplitter,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
-from qtpy.QtGui import (
-    QIntValidator,
-    QTextCursor,
-    QTextCharFormat,
-    QColor,
-    QKeyEvent,
-    QKeySequence,
-    QShortcut,
-)
-
-from qtpy.QtCore import (
-    Qt,
-    QObject,
-    QCoreApplication,
-    QSettings,
-    QTimer,
-    Signal,
-    QStringListModel,
-)
-from qtpy.QtSerialPort import QSerialPort, QSerialPortInfo
+from ymodem.Protocol import ProtocolType
+from ymodem.Socket import ModemSocket
 
 from ymodterm import __version__
 
@@ -287,9 +286,7 @@ class QModemSocket(ModemSocket):
         logger.debug("[MODEM] Calling _abort")
         return super()._abort()
 
-    def _read_and_wait(
-        self, wait_chars: List[str], wait_time: int = 1
-    ) -> Optional[str]:
+    def _read_and_wait(self, wait_chars: list[str], wait_time: int = 1) -> str | None:
         start_time = time.perf_counter()
         while True:
             if self._canceled:
@@ -302,8 +299,8 @@ class QModemSocket(ModemSocket):
                 return c
 
     def _write_and_wait(
-        self, write_char: str, wait_chars: List[str], wait_time: int = 1
-    ) -> Optional[str]:
+        self, write_char: str, wait_chars: list[str], wait_time: int = 1
+    ) -> str | None:
         start_time = time.perf_counter()
         self.write(write_char)
         while True:
@@ -360,7 +357,7 @@ class QSerialPortModemAdapter(QObject):
         self.logger = logger.getChild("modem_adapter")
         self.read_queue = Queue()
 
-    def read(self, size: int, timeout: Optional[float] = 1) -> Optional[bytes]:
+    def read(self, size: int, timeout: float | None = 1) -> bytes | None:
         if timeout is None:
             timeout = 1.0
 
@@ -391,9 +388,7 @@ class QSerialPortModemAdapter(QObject):
 
         return bytes(data)
 
-    def write(
-        self, data: Union[bytes, bytearray], timeout: Optional[float] = 1
-    ) -> Optional[int]:
+    def write(self, data: bytes | bytearray, timeout: float | None = 1) -> int | None:
         if timeout is None:
             timeout = 1.0
 
@@ -418,6 +413,10 @@ class QSerialPortModemAdapter(QObject):
                 self.read_queue.get_nowait()
             except Empty:
                 break
+
+
+class TransferCancelledError(Exception):
+    pass
 
 
 class ModemTransferManager(QObject):
@@ -451,7 +450,9 @@ class ModemTransferManager(QObject):
         else:
             logger.debug("Adapter is not initialized")
 
-    def send_files(self, files: List[str], protocol: int, options: List[str] = None):
+    def send_files(
+        self, files: list[str], protocol: int, options: list[str] | None = None
+    ):
         if options is None:
             options = []
 
@@ -476,7 +477,7 @@ class ModemTransferManager(QObject):
         QTimer.singleShot(100, self._start_transfer)
 
     def receive_files(
-        self, save_directory: str, protocol: int, options: List[str] = None
+        self, save_directory: str, protocol: int, options: list[str] | None = None
     ):
         if options is None:
             options = []
@@ -523,7 +524,7 @@ class ModemTransferManager(QObject):
 
             def progress_callback(index: int, name: str, total: int, current: int):
                 if self._is_cancelled:
-                    raise Exception("Transfer canceled by user")
+                    raise TransferCancelledError("Transfer canceled by user")
                 self.progress.emit((index, name, total, current))
                 QCoreApplication.processEvents()
 
@@ -541,7 +542,7 @@ class ModemTransferManager(QObject):
 
             self._finish_transfer(success)
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - must not crash the Qt event loop
             error_msg = str(e).lower()
 
             if "cancel" in error_msg:
@@ -601,13 +602,13 @@ class StatefullProp(QObject):
         if self.value != value:
             self.value = value
             self.changed.emit(value)
-        logger.debug("Value changed: %s: %s" % (self.objectName(), value))
+        logger.debug("Value changed: %s: %s", self.objectName(), value)
 
     def bind(
         self,
-        value_setter: Optional[Any] = None,
-        change_signal: Optional[Signal] = None,
-        cast_func: Optional[Callable[[Any], Any]] = None,
+        value_setter: Any | None = None,
+        change_signal: Signal | None = None,
+        cast_func: Callable[[Any], Any] | None = None,
     ):
         # set initial value
         if value_setter is not None:
@@ -618,12 +619,14 @@ class StatefullProp(QObject):
             if cast_func and callable(cast_func):
                 change_signal.connect(lambda value: self.set(cast_func(value)))
                 logger.debug(
-                    "%s binded to %s with custom cast: %s"
-                    % (self, change_signal, cast_func)
+                    "%s binded to %s with custom cast: %s",
+                    self,
+                    change_signal,
+                    cast_func,
                 )
             else:
                 change_signal.connect(self.set)
-                logger.debug("%s binded to %s with auto cast" % (self, change_signal))
+                logger.debug("%s binded to %s with auto cast", self, change_signal)
 
 
 def prop_from_defaults(key: str) -> StatefullProp:
@@ -692,7 +695,7 @@ class AppState(QObject):
             self.dev = ns.port
 
         except EOFError as e:
-            logger.error("EOFError on restore_settings: %s" % e)
+            logger.error("EOFError on restore_settings: %s", e)
             self.save_settings()
 
     def save_property(self, prop: StatefullProp):
@@ -733,7 +736,7 @@ class SerialManagerWidget(QWidget):
         self.state = state
 
         self.ports: dict[str, QSerialPortInfo] = {}
-        self.port: Optional[QSerialPort] = None
+        self.port: QSerialPort | None = None
 
         # <<< Create QTimer
         self.refresh_timer = QTimer(self)
@@ -753,9 +756,9 @@ class SerialManagerWidget(QWidget):
 
         self.port_select_shortcut = QShortcut(QKeySequence("F2"), self)
         self.port_select_shortcut.activated.connect(
-            lambda: self.select_port.showPopup()
-            if self.select_port.isEnabled()
-            else None
+            lambda: (
+                self.select_port.showPopup() if self.select_port.isEnabled() else None
+            )
         )
 
         # create widgets
@@ -1495,13 +1498,7 @@ class CentralWidget(QWidget):
         stop_bits = self.state.stop_bits.get()
         if stop_bits == 3:
             stop_bits = "1.5"
-        text = "Device: {port}\tConnection: {baud} @ {bits}-{parity}-{stop}".format(
-            port=self.serial_manager.select_port.currentText(),
-            baud=self.state.baudrate.get(),
-            bits=self.state.data_bits.get(),
-            parity=QSerialPort.Parity(self.state.parity.get()).name[0],
-            stop=stop_bits,
-        )
+        text = f"Device: {self.serial_manager.select_port.currentText()}\tConnection: {self.state.baudrate.get()} @ {self.state.data_bits.get()}-{QSerialPort.Parity(self.state.parity.get()).name[0]}-{stop_bits}"
         self.status.setText(text)
         self.input_widget.edit.setFocus()
 
@@ -1628,11 +1625,11 @@ class CentralWidget(QWidget):
 
     def _on_transfer_error(self, error_msg: str):
         msg = "✗ Error occured during file transfer"
-        logger.error("[MODEM] %s: %s" % (msg, error_msg))
+        logger.error("[MODEM] %s: %s", msg, error_msg)
         QMessageBox.warning(self, "Error", msg)
 
     def _on_transfer_log(self, log_msg: str):
-        logger.debug("[MODEM] %s" % log_msg)
+        logger.debug("[MODEM] %s", log_msg)
 
 
 class YModTermWindow(QMainWindow):
@@ -1672,7 +1669,7 @@ def parse_cli_args():
             setattr(namespace, self.dest, values)
 
     class StopBitsAction(argparse.Action):
-        mapping = {
+        mapping: ClassVar = {
             "1": QSerialPort.StopBits.OneStop.value,
             "2": QSerialPort.StopBits.TwoStop.value,
             "1.5": QSerialPort.StopBits.OneAndHalfStop.value,
@@ -1682,7 +1679,12 @@ def parse_cli_args():
             setattr(namespace, self.dest, self.mapping[values])
 
     class ModemAction(argparse.Action):
-        mapping = {"X": "XModem", "Y": "YModem", "YG": "YModem-G", "Z": "ZModem"}
+        mapping: ClassVar = {
+            "X": "XModem",
+            "Y": "YModem",
+            "YG": "YModem-G",
+            "Z": "ZModem",
+        }
 
         def __call__(self, parser, namespace, values, option_string=None):
             setattr(namespace, self.dest, self.mapping[values])

@@ -1,6 +1,6 @@
-from importlib.metadata import metadata
+from importlib.metadata import PackageNotFoundError, metadata
 
 try:
     __version__ = metadata("ymodterm")["Version"]
-except Exception:
+except PackageNotFoundError:
     __version__ = "unknown"
